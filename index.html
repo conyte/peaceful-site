@@ -365,7 +365,7 @@
 
 <div class="container">
     <div class="panel" id="leftPanel">
-        <div class="panel-header">原始JSON（郑安智能制造学院）</div>
+        <div class="panel-header">原始数据（郑安智能制造学院）</div>
         <div class="toolbar">
             <div class="tab-group">
                 <button class="tab-btn active" data-panel="left" data-view="editor">编辑器</button>
@@ -374,6 +374,7 @@
                 <button class="tab-btn" data-panel="left" data-view="type">类型</button>
             </div>
             <button class="btn-primary" onclick="uploadLeft()">上传文件</button>
+			<button class="btn-primary" onclick="manualSync()">✅ 一键修复数据</button>
             <button class="btn-danger" onclick="clearLeftData()">🗑️ 清空数据</button>
             <button class="btn-warning" onclick="toggleLeftFullscreen()">📺 全屏/还原</button>
         </div>
@@ -388,7 +389,7 @@
     </div>
 
     <div class="panel" id="rightPanel">
-        <div class="panel-header">编辑后JSON（郑安智能制造学院）</div>
+        <div class="panel-header">编辑后数据（郑安智能制造学院）</div>
         <div class="toolbar">
             <div class="tab-group">
                 <button class="tab-btn active" data-panel="right" data-view="editor">编辑器</button>
