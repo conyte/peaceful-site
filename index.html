@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON双向同步校验修复工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/jsonrepair@3/dist/index.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/json5@2.2.3/dist/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsoneditor@10.1.0/dist/jsoneditor.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsoneditor@10.1.0/dist/jsoneditor.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        body {
+            background: #f5f7fa;
+            padding: 20px;
+            position: relative;
+            min-height: 100vh;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            height: 95vh;
+            transition: all 0.3s;
+        }
+        .panel {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: all 0.3s;
+        }
+        .panel.fullscreen {
+            flex: 10;
+        }
+        .panel.hidden {
+            flex: 0;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .panel-header {
+            padding: 12px 16px;
+            background: #409eff;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+        }
+        .toolbar {
+            padding: 8px 12px;
+            background: #f0f2f5;
+            display: flex;
+            gap: 6px;
+            border-bottom: 1px solid #e4e7ed;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .toolbar button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .toolbar button:hover {
+            opacity: 0.85;
+            transform: translateY(-1px);
+        }
+        .btn-primary { background: #409eff; color: white; }
+        .btn-success { background: #67c23a; color: white; }
+        .btn-warning { background: #e6a23c; color: white; }
+        .btn-danger { background: #f56c6c; color: white; }
+        .tab-group {
+            display: flex;
+            gap: 4px;
+            margin-right: 10px;
+        }
+        .tab-btn {
+            padding: 6px 12px;
+            border: none;
+            background: #e4e7ed;
+            border-radius: 4px 4px 0 0;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            background: white;
+            color: #409eff;
+            font-weight: bold;
+        }
+        .content-area {
+            flex: 1;
+            overflow: auto;
+            padding: 12px;
+        }
+        .editor-container {
+            height: 100%;
+            width: 100%;
+        }
+        .jsoneditor-error {
+            background-color: #ffebee !important;
+            color: #f44336 !important;
+        }
+        /* 移除 Powered by ACE 水印 */
+        .jsoneditor-poweredBy {
+            display: none !important;
+        }
+        /* 左侧校验提示条样式 */
+        #errorList {
+            padding: 6px 16px;
+            background: #f8f9fa;
+            border-top: 1px solid #e4e7ed;
+            font-size: 13px;
+            text-align: left;
+        }
+        /* ===== 树形视图样式 - 完全匹配截图 + 悬浮展开 ===== */
+        .tree-container {
+            font-family: "Microsoft YaHei", Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #333;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 8px;
+            overflow-x: auto;
+        }
+        .tree-node {
+            padding: 4px 8px;
+            cursor: pointer;
+            position: relative;
+            white-space: nowrap;
+            transition: background-color 0.2s;
+            border-radius: 2px;
+        }
+        .tree-node:hover {
+            background-color: #f5f8ff;
+        }
+        .tree-node-index {
+            color: #0066cc;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .tree-node-content {
+            color: #333;
+        }
+        /* 悬浮展开的子内容样式 - 核心修改 */
+        .tree-children {
+            margin-left: 24px;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+            opacity: 0;
+        }
+        /* 关键：鼠标hover父节点时，子节点自动展开 */
+        .tree-node:hover > .tree-children {
+            max-height: 2000px; /* 足够大的高度容纳所有子内容 */
+            opacity: 1;
+            transition: max-height 0.5s ease-in, opacity 0.3s ease-in;
+        }
+        .tree-children .tree-node {
+            padding: 2px 8px;
+            color: #666;
+            border-left: 1px dashed #ccc;
+        }
+        .tree-tooltip {
+            position: absolute;
+            background: #333;
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: pre-wrap;
+            z-index: 100;
+            max-width: 400px;
+            display: none;
+        }
+        .tree-node:hover .tree-tooltip {
+            display: block;
+        }
+        /* ===== 表格样式 ===== */
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+            position: relative;
+        }
+        .table-view {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #e0e0e0;
+            font-size: 12px;
+            table-layout: fixed;
+        }
+        .table-view th {
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            padding: 8px 6px;
+            text-align: left;
+            font-weight: bold;
+            color: #333;
+            position: relative;
+            user-select: none;
+            white-space: nowrap;
+            min-width: 80px;
+        }
+        .table-view th .resizer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 8px;
+            height: 100%;
+            cursor: col-resize;
+            background: transparent;
+        }
+        .table-view th .resizer:hover {
+            background: rgba(64, 158, 255, 0.1);
+        }
+        .table-view th::after {
+            content: "∨";
+            font-size: 10px;
+            margin-left: 4px;
+            color: #999;
+        }
+        .table-view td {
+            border: 1px solid #e0e0e0;
+            padding: 8px 6px;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            position: relative;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            height: 40px;
+            vertical-align: middle;
+        }
+        .table-view td:hover {
+            background-color: #f5f8ff;
+        }
+        .table-view td.selected {
+            background-color: #e6f7ff;
+            border-color: #91d5ff;
+        }
+        .table-view td.sync-highlight {
+            background-color: #fff7e6;
+            border-color: #ffb800;
+            animation: highlightFlash 1.5s ease;
+        }
+        @keyframes highlightFlash {
+            0% { background-color: #fff7e6; }
+            50% { background-color: #ffe58f; }
+            100% { background-color: #fff7e6; }
+        }
+        .sync-highlight {
+            background-color: #fff7e6 !important;
+            border-left: 3px solid #ffb800 !important;
+            animation: editorHighlightFlash 1.5s ease !important;
+        }
+        @keyframes editorHighlightFlash {
+            0% { background-color: #fff7e6; }
+            50% { background-color: #ffe58f; }
+            100% { background-color: #fff7e6; }
+        }
+        /* ===== 二级知识点弹出层（修改核心：仅hover显示，移除click依赖）===== */
+        .second-level-popup {
+            position: absolute;
+            top: 0;
+            left: 100%;
+            margin-left: 5px;
+            min-width: 600px;
+            max-width: 800px;
+            max-height: 400px;
+            background: white;
+            border: 1px solid #dcdcdc;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            padding: 10px;
+            border-radius: 4px;
+            z-index: 99999;
+            overflow-y: auto;
+            display: none; /* 默认隐藏 */
+            font-family: Consolas, "Microsoft YaHei", monospace;
+            white-space: pre-wrap;
+            line-height: 1.5;
+            font-size: 12px;
+            pointer-events: none; /* 避免遮挡鼠标事件 */
+        }
+        /* 关键修改：鼠标hover td时显示弹出层 */
+        .table-view td:hover .second-level-popup {
+            display: block;
+        }
+        /* ===== TypeScript类型视图样式 ===== */
+        .ts-type-view {
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #333;
+            background: #f8f8f8;
+            padding: 16px;
+            border-radius: 4px;
+            white-space: pre;
+            overflow-x: auto;
+        }
+        .ts-keyword { color: #0000ff; }    /* export/interface/enum 关键字 */
+        .ts-interface { color: #2b91af; }  /* 接口名 */
+        .ts-enum { color: #2b91af; }       /* 枚举名 */
+        .ts-field { color: #001080; }      /* 字段名 */
+        .ts-type { color: #008080; }       /* 类型名 */
+        .ts-string { color: #a31515; }     /* 字符串值 */
+        .progress-modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .progress-box {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            width: 300px;
+        }
+        .progress-bar {
+            height: 8px;
+            background: #e4e7ed;
+            border-radius: 4px;
+            margin-top: 12px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #409eff;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .toast-message {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .toast-message.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+
+<div class="toast-message" id="toastMessage"></div>
+
+<div class="container">
+    <div class="panel" id="leftPanel">
+        <div class="panel-header">原始JSON（郑安智能制造学院）</div>
+        <div class="toolbar">
+            <div class="tab-group">
+                <button class="tab-btn active" data-panel="left" data-view="editor">编辑器</button>
+                <button class="tab-btn" data-panel="left" data-view="table">表格</button>
+                <button class="tab-btn" data-panel="left" data-view="tree">树形</button>
+                <button class="tab-btn" data-panel="left" data-view="type">类型</button>
+            </div>
+            <button class="btn-primary" onclick="uploadLeft()">上传文件</button>
+            <button class="btn-danger" onclick="clearLeftData()">🗑️ 清空数据</button>
+            <button class="btn-warning" onclick="toggleLeftFullscreen()">📺 全屏/还原</button>
+        </div>
+        <div class="content-area">
+            <div id="left-editor" class="editor-container"></div>
+            <div id="left-table" class="editor-container" style="display:none"></div>
+            <div id="left-tree" class="editor-container" style="display:none"></div>
+            <div id="left-type" class="editor-container" style="display:none"></div>
+        </div>
+        <!-- 左侧校验提示：JSON格式完全正确 显示在这里 -->
+        <div id="errorList"></div>
+    </div>
+
+    <div class="panel" id="rightPanel">
+        <div class="panel-header">编辑后JSON（郑安智能制造学院）</div>
+        <div class="toolbar">
+            <div class="tab-group">
+                <button class="tab-btn active" data-panel="right" data-view="editor">编辑器</button>
+                <button class="tab-btn" data-panel="right" data-view="table">表格</button>
+                <button class="tab-btn" data-panel="right" data-view="tree">树形</button>
+                <button class="tab-btn" data-panel="right" data-view="type">类型</button>
+            </div>
+			<button class="btn-primary" onclick="manualSync()">✅ 同步数据</button>
+            <button class="btn-danger" onclick="clearRightData()">🗑️ 清空数据</button>
+			<button class="btn-success" onclick="exportRight()" id="exportBtn" disabled>💾 导出JSON</button>
+        </div>
+        <div class="content-area">
+            <div id="right-editor" class="editor-container"></div>
+            <div id="right-table" class="editor-container" style="display:none"></div>
+            <div id="right-tree" class="editor-container" style="display:none"></div>
+            <div id="right-type" class="editor-container" style="display:none"></div>
+        </div>
+    </div>
+</div>
+
+<div class="progress-modal" id="progressModal">
+    <div class="progress-box">
+        <h4>正在导出...</h4>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <p id="progressText" style="margin-top:8px;font-size:13px">0%</p>
+    </div>
+</div>
+
+<script>
+    let leftEditor, rightEditor;
+    let repairedJson = null;
+    let originalFormattedText = '';
+    let activeHighlights = [];
+    let isLeftFullscreen = false;
+    
+    function showToast(message, duration = 2000) {
+        const toast = document.getElementById('toastMessage');
+        toast.textContent = message;
+        toast.classList.add('show');
+        
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, duration);
+    }
+
+    function clearAllHighlights() {
+        activeHighlights.forEach(marker => {
+            try { marker.clear(); } catch (e) {}
+        });
+        activeHighlights = [];
+    }
+
+    // 左侧全屏/还原功能
+    function toggleLeftFullscreen() {
+        const leftPanel = document.getElementById('leftPanel');
+        const rightPanel = document.getElementById('rightPanel');
+        
+        isLeftFullscreen = !isLeftFullscreen;
+        
+        if (isLeftFullscreen) {
+            leftPanel.classList.add('fullscreen');
+            rightPanel.classList.add('hidden');
+            showToast('✅ 左侧已全屏显示', 1500);
+        } else {
+            leftPanel.classList.remove('fullscreen');
+            rightPanel.classList.remove('hidden');
+            showToast('✅ 已恢复双面板布局', 1500);
+        }
+    }
+
+    // 格式化嵌套数据（用于表格弹出层）
+    function formatFullNestedData(data) {
+        if (!data) return "无";
+        if (typeof data === "string") {
+            try { data = JSON.parse(data); } catch (e) {}
+        }
+        if (!Array.isArray(data)) return "无";
+        
+        let res = "";
+        data.forEach((item, i) => {
+            res += `${i}: {\n`;
+            res += `    二级知识点内容: "${item["二级知识点内容"] || "无名称"}"\n`;
+            if (item["前置知识点"]) res += `    前置知识点: "${item["前置知识点"]}"\n`;
+            if (item["后置知识点"]) res += `    后置知识点: "${item["后置知识点"]}"\n`;
+            if (item["标签"]) res += `    标签: "${item["标签"]}"\n`;
+            if (item["认知维度"]) res += `    认知维度: "${item["认知维度"]}"\n`;
+            if (item["分类"]) res += `    分类: "${item["分类"]}"\n`;
+            if (item["教学目标"]) res += `    教学目标: "${item["教学目标"]}"\n`;
+            if (item["知识点说明"]) res += `    知识点说明: "${item["知识点说明"]}"\n`;
+            
+            const children = item["三级知识点"] || [];
+            if (Array.isArray(children) && children.length > 0) {
+                res += `    三级知识点: [ (${children.length})\n`;
+                children.forEach((c, j) => {
+                    res += `    ${j}: {\n`;
+                    res += `        三级知识点内容: "${c["三级知识点内容"] || "无名称"}"\n`;
+                    if (c["前置知识点"]) res += `        前置知识点: "${c["前置知识点"]}"\n`;
+                    if (c["标签"]) res += `        标签: "${c["标签"]}"\n`;
+                    if (c["认知维度"]) res += `        认知维度: "${c["认知维度"]}"\n`;
+                    if (c["分类"]) res += `        分类: "${c["分类"]}"\n`;
+                    if (c["教学目标"]) res += `        教学目标: "${c["教学目标"]}"\n`;
+                    if (c["知识点说明"]) res += `        知识点说明: "${c["知识点说明"]}"\n`;
+                    res += `    }\n`;
+                });
+                res += `    ]\n`;
+            }
+            res += `}\n\n`;
+        });
+        return res.trim() || "无数据";
+    }
+
+    // 构建树形节点文本（匹配截图样式）
+    function buildTreeNodeText(item) {
+        let text = `一级知识点内容: "${item["一级知识点内容"] || ""}"`;
+        if (item["标签"]) text += `, 标签: "${item["标签"]}"`;
+        if (item["认知维度"]) text += `, 认知维度: "${item["认知维度"]}"`;
+        if (item["分类"]) text += `, 分类: "${item["分类"]}"`;
+        if (item["教学目标"]) {
+            const target = item["教学目标"].length > 50 
+                ? item["教学目标"].substring(0, 50) + "...}" 
+                : item["教学目标"];
+            text += `, 教学目标: "${target}"`;
+        }
+        if (item["前置知识点"]) text += `, 前置知识点: "${item["前置知识点"]}"`;
+        return text;
+    }
+
+    // 清空左侧数据
+    function clearLeftData() {
+        leftEditor.setText("");
+        repairedJson = null;
+        originalFormattedText = "";
+        document.getElementById('exportBtn').disabled = true;
+        rightEditor.setText("// 请先修复 → 自动同步");
+        document.getElementById('errorList').innerHTML = "";
+        showToast("✅ 左侧数据已清空", 1500);
+    }
+
+    // 清空右侧数据
+    function clearRightData() {
+        rightEditor.setText("");
+        repairedJson = null;
+        originalFormattedText = "";
+        document.getElementById('exportBtn').disabled = true;
+        document.getElementById('errorList').innerHTML = "";
+        showToast("✅ 右侧数据已清空", 1500);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        leftEditor = new JSONEditor(document.getElementById('left-editor'), {
+            mode: 'code',
+            modes: ['code', 'tree'],
+            onChange: null,
+            onBlur: null
+        });
+
+        rightEditor = new JSONEditor(document.getElementById('right-editor'), {
+            mode: 'code',
+            modes: ['code', 'tree'],
+            readOnly: true
+        });
+
+        // 已删除默认示例数据，初始为空
+        leftEditor.setText("");
+        rightEditor.setText("// 请先修复 → 自动同步");
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const panel = btn.dataset.panel;
+                const view = btn.dataset.view;
+                btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                document.querySelectorAll(`#${panel}-editor, #${panel}-table, #${panel}-tree, #${panel}-type`).forEach(el => el.style.display = 'none');
+                document.getElementById(`${panel}-${view}`).style.display = 'block';
+                if (view === 'table') {
+                    renderTable(panel);
+                    initTableResizable(panel);
+                }
+                if (view === 'tree') renderTree(panel);
+                if (view === 'type') renderType(panel);
+            });
+        });
+
+        // 修复编辑器同步监听
+        const initEditorSync = (editor, panel) => {
+            if (!editor || !editor.editor || !editor.editor.codemirror) return;
+            editor.editor.codemirror.on('cursorActivity', () => {
+                syncEditorPosition(panel, panel === 'left' ? 'right' : 'left');
+            });
+        };
+
+        setTimeout(() => {
+            initEditorSync(leftEditor, 'left');
+            initEditorSync(rightEditor, 'right');
+        }, 300);
+    });
+
+    // 表格列宽调整功能
+    function initTableResizable(panel) {
+        const table = document.querySelector(`#${panel}-table .table-view`);
+        if (!table) return;
+        
+        const headers = table.querySelectorAll('th');
+        headers.forEach((header, index) => {
+            const resizer = document.createElement('div');
+            resizer.classList.add('resizer');
+            header.appendChild(resizer);
+            
+            resizer.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                const startX = e.pageX;
+                const startWidth = header.offsetWidth;
+                
+                const handleMouseMove = function(e) {
+                    const width = startWidth + (e.pageX - startX);
+                    if (width >= 80) {
+                        header.style.width = `${width}px`;
+                        const tds = table.querySelectorAll(`tr td:nth-child(${index + 1})`);
+                        tds.forEach(td => {
+                            td.style.width = `${width}px`;
+                        });
+                    }
+                };
+                
+                const handleMouseUp = function() {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                };
+                
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+            });
+        });
+    }
+
+    function syncEditorPosition(sourcePanel, targetPanel) {
+        try {
+            if (!repairedJson) return;
+            
+            const sourceEditor = sourcePanel === 'left' ? leftEditor : rightEditor;
+            const targetEditor = targetPanel === 'left' ? leftEditor : rightEditor;
+            
+            if (!sourceEditor.editor || !sourceEditor.editor.codemirror) return;
+            
+            const cursor = sourceEditor.editor.codemirror.getCursor();
+            const line = cursor.line;
+            const sourceText = sourceEditor.getText();
+            const sourceLines = sourceText.split('\n');
+            
+            clearAllHighlights();
+            
+            let identifier = null;
+            let identifierType = null;
+            
+            for (let i = line; i >= 0; i--) {
+                const lineContent = sourceLines[i].trim();
+                const level1Match = lineContent.match(/"一级知识点内容":\s*"([^"]+)"/);
+                if (level1Match) {
+                    identifier = level1Match[1];
+                    identifierType = 'level1';
+                    break;
+                }
+            }
+            
+            if (identifier && targetEditor.editor && targetEditor.editor.codemirror) {
+                const targetText = targetEditor.getText();
+                const targetLines = targetText.split('\n');
+                let targetLine = -1;
+                
+                for (let j = 0; j < targetLines.length; j++) {
+                    if (targetLines[j].includes(`"一级知识点内容": "${identifier}"`)) {
+                        targetLine = j;
+                        break;
+                    }
+                }
+                
+                if (targetLine >= 0) {
+                    const cm = targetEditor.editor.codemirror;
+                    cm.setCursor(targetLine);
+                    cm.scrollIntoView({line: targetLine, ch: 0}, 0);
+                    
+                    const marker = cm.markText(
+                        {line: targetLine, ch: 0},
+                        {line: targetLine, ch: targetLines[targetLine].length},
+                        {className: 'sync-highlight'}
+                    );
+                    activeHighlights.push(marker);
+                    
+                    setTimeout(() => {
+                        try { marker.clear(); } catch (e) {}
+                    }, 5000);
+                }
+            }
+        } catch (e) {
+            console.log('同步失败:', e);
+        }
+    }
+
+    function syncTreeNodePosition(sourceNode, sourcePanel) {
+        try {
+            if (!repairedJson) return;
+            const title = sourceNode.querySelector('.tree-node-content').textContent.trim();
+            if (!title) return;
+            
+            const targetPanel = sourcePanel === 'left' ? 'right' : 'left';
+            document.querySelector(`[data-panel="${targetPanel}"][data-view="tree"]`).click();
+            
+            document.querySelectorAll(`#${targetPanel}-tree .tree-node`).forEach(node => {
+                node.style.backgroundColor = '';
+                node.style.borderColor = '';
+            });
+            
+            document.querySelectorAll(`#${targetPanel}-tree .tree-node`).forEach(node => {
+                const nodeContent = node.querySelector('.tree-node-content').textContent.trim();
+                if (nodeContent.includes(title.substring(0, 20))) {
+                    node.scrollIntoView({behavior: 'smooth', block: 'center'});
+                    node.style.backgroundColor = '#fff7e6';
+                    node.style.borderColor = '#ffb800';
+                    
+                    setTimeout(() => {
+                        node.style.backgroundColor = '';
+                        node.style.borderColor = '';
+                    }, 5000);
+                }
+            });
+        } catch (e) {}
+    }
+
+    function selectTableCell(cell) {
+        document.querySelectorAll('.table-view td.selected').forEach(td => td.classList.remove('selected'));
+        cell.classList.add('selected');
+        
+        try {
+            navigator.clipboard.writeText(cell.textContent.trim());
+        } catch (e) {}
+        
+        try {
+            if (!repairedJson) return;
+            const rowIdx = cell.dataset.row;
+            const currentPanel = cell.closest('#left-table') ? 'left' : 'right';
+            const targetPanel = currentPanel === 'left' ? 'right' : 'left';
+            
+            document.querySelectorAll(`#${targetPanel}-table td.sync-highlight`).forEach(td => td.classList.remove('sync-highlight'));
+            document.querySelector(`[data-panel="${targetPanel}"][data-view="table"]`).click();
+            
+            const targetCells = document.querySelectorAll(`#${targetPanel}-table td[data-row="${rowIdx}"]`);
+            if (targetCells.length) {
+                targetCells.forEach(c => c.classList.add('sync-highlight'));
+                targetCells[0].scrollIntoView({behavior: 'smooth', block: 'center'});
+                
+                setTimeout(() => {
+                    targetCells.forEach(c => c.classList.remove('sync-highlight'));
+                }, 5000);
+                showToast(`✅ 已定位到${targetPanel === 'right' ? '右侧' : '左侧'}对应行`, 1500);
+            }
+        } catch (e) {}
+    }
+
+    function validateJSON(text) {
+        const lines = text.split('\n');
+        const errorList = document.getElementById('errorList');
+        errorList.innerHTML = '';
+
+        try {
+            JSON.parse(text);
+            errorList.innerHTML = `<div style='color:green'>✅ JSON 格式完全正确</div>`;
+            return { isValid: true, error: null, fixedText: text };
+        } catch (e) {
+            let errPos = 0;
+            const match = e.message.match(/at position (\d+)/);
+            if (match) errPos = parseInt(match[1]);
+
+            let lineNum = 1, colNum = 1, pos = 0;
+            for (let i=0; i<lines.length; i++) {
+                if (pos + lines[i].length >= errPos) {
+                    lineNum = i+1;
+                    colNum = errPos - pos +1;
+                    break;
+                }
+                pos += lines[i].length +1;
+            }
+
+            let errType = "结构错误";
+            if (e.message.includes("Expected ','")) errType = "少逗号";
+            if (e.message.includes("Expected ':'")) errType = "少冒号";
+            if (e.message.includes("Unexpected token") || e.message.includes("}") || e.message.includes("]")) errType = "括号错误";
+            if (e.message.includes("duplicate key")) errType = "重复key";
+
+            errorList.innerHTML = `<div style='color:red'>❌ 第 ${lineNum} 行 | ${errType}</div>`;
+            return { isValid: false, error: e, errorInfo: { lineNum, errType }, fixedText: null };
+        }
+    }
+
+    function manualSync() {
+        const text = leftEditor.getText().trim();
+        const validateResult = validateJSON(text);
+        
+        if (validateResult.isValid) {
+            originalFormattedText = text;
+            repairedJson = JSON.parse(text);
+            rightEditor.setText(text);
+            document.getElementById('exportBtn').disabled = false;
+            showToast("✅ JSON格式完全正确，已自动同步！", 2000);
+        } else {
+            try {
+                let fixed;
+                try { 
+                    fixed = JSONrepair(text); 
+                } catch (e) { 
+                    fixed = JSON.stringify(JSON5.parse(text), null, 4); 
+                }
+                originalFormattedText = fixed;
+                repairedJson = JSON.parse(fixed);
+                rightEditor.setText(originalFormattedText);
+                document.getElementById('exportBtn').disabled = false;
+                showToast("⚠️ 已完成自动修复并同步", 3000);
+            } catch (e) {
+                repairedJson = null;
+                originalFormattedText = '';
+                document.getElementById('exportBtn').disabled = true;
+                showToast("❌ 修复失败: " + e.message, 3000);
+            }
+        }
+    }
+
+    function getOriginalIndentation(text) {
+        const lines = text.split('\n');
+        for (let line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && !['{','}','[',']'].includes(trimmed)) {
+                const indent = line.match(/^\s+/);
+                if (indent) return indent[0].length;
+            }
+        }
+        return 4;
+    }
+
+    function uploadLeft() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,.txt';
+        input.onchange = e => {
+            const reader = new FileReader();
+            reader.onload = ev => {
+                leftEditor.setText(ev.target.result);
+                repairedJson = null;
+                originalFormattedText = '';
+                document.getElementById('exportBtn').disabled = true;
+                rightEditor.setText("// 请先修复 → 自动同步");
+            };
+            reader.readAsText(e.target.files[0]);
+        };
+        input.click();
+    }
+
+    function exportRight() {
+        if (!repairedJson || !originalFormattedText) { 
+            showToast('❌ 请先完成修复', 2000); 
+            return; 
+        }
+        const modal = document.getElementById('progressModal');
+        modal.style.display = 'flex';
+        let p = 0;
+        const timer = setInterval(() => {
+            p += 10;
+            document.getElementById('progressFill').style.width = p+'%';
+            document.getElementById('progressText').textContent = p+'%';
+            if (p >= 100) {
+                clearInterval(timer);
+                setTimeout(() => {
+                    modal.style.display = 'none';
+                    const blob = new Blob([originalFormattedText], {type:'application/json'});
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = '修复后的JSON.json';
+                    a.click();
+                    showToast('✅ 导出成功！', 2000);
+                }, 300);
+            }
+        }, 200);
+    }
+
+    // 表格渲染
+    function renderTable(panel) {
+        const data = panel === 'left' ? (leftEditor.get() || []) : (repairedJson || []);
+        const el = document.getElementById(`${panel}-table`);
+        
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            el.innerHTML = '<p style="padding:10px;color:#999">无数据</p>';
+            return;
+        }
+
+        const headers = [
+            "一级知识点内容", "标签", "认知维度", "分类",
+            "教学目标", "知识点说明", "二级知识点", "前置知识点"
+        ];
+        const colWidths = {
+            "一级知识点内容": "120px",
+            "标签": "80px",
+            "认知维度": "80px",
+            "分类": "80px",
+            "教学目标": "200px",
+            "知识点说明": "200px",
+            "二级知识点": "150px",
+            "前置知识点": "120px"
+        };
+
+        let html = `<div class="table-container"><table class="table-view"><thead><tr>`;
+        headers.forEach(h => {
+            html += `<th style="width:${colWidths[h]}">${h}</th>`;
+        });
+        html += `</tr></thead><tbody>`;
+
+        data.forEach((item, rowIdx) => {
+            html += `<tr>`;
+            headers.forEach(header => {
+                const val = item[header] || '';
+                if (header === '二级知识点') {
+                    const showText = Array.isArray(val) ? `[${Array(val.length).fill('{...}').join(', ')}] (${val.length})` : val;
+                    html += `<td data-row="${rowIdx}">${showText}
+                        <div class="second-level-popup">${formatFullNestedData(val)}</div>
+                    </td>`;
+                } else {
+                    html += `<td data-row="${rowIdx}" onclick="selectTableCell(this)">${val}</td>`;
+                }
+            });
+            html += `</tr>`;
+        });
+
+        html += `</tbody></table></div>`;
+        el.innerHTML = html;
+    }
+
+    // 重构树形视图 - 完全匹配截图+悬浮展开
+    function renderTree(panel) {
+        const data = panel === 'left' ? leftEditor.get() : repairedJson;
+        const el = document.getElementById(`${panel}-tree`);
+        
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            el.innerHTML = '<p style="padding:10px;color:#999">无数据</p>';
+            return;
+        }
+
+        // 构建树形结构（匹配截图样式）
+        function buildTree(item, index, level = 0) {
+            const nodeText = buildTreeNodeText(item);
+            const children = item["二级知识点"] || [];
+            
+            let html = `<div class="tree-node" onclick="syncTreeNodePosition(this, '${panel}')">`;
+            html += `<span class="tree-node-index">[${index}]</span>`;
+            html += `<span class="tree-node-content">${nodeText}</span>`;
+            
+            // 子节点（悬浮展开）
+            if (children.length > 0) {
+                html += `<div class="tree-children">`;
+                children.forEach((child, childIdx) => {
+                    html += buildTree(child, `${index}:${childIdx}`, level + 1);
+                });
+                html += `</div>`;
+            }
+            
+            html += `</div>`;
+            return html;
+        }
+
+        let treeHtml = `<div class="tree-container">`;
+        data.forEach((item, idx) => {
+            treeHtml += buildTree(item, idx);
+        });
+        treeHtml += `</div>`;
+        
+        el.innerHTML = treeHtml;
+    }
+
+    // 动态生成TypeScript类型（匹配最新截图格式，包含Response接口）
+    function renderType(panel) {
+        const data = panel === 'left' ? leftEditor.get() : repairedJson;
+        const el = document.getElementById(`${panel}-type`);
+        
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            el.innerHTML = '<p style="padding:10px;color:#999">无数据，无法生成类型</p>';
+            return;
+        }
+
+        // 完全匹配最新截图的TypeScript类型模板
+        const typeCode = `<div class="ts-type-view">
+<span class="ts-keyword">export</span> <span class="ts-keyword">interface</span> <span class="ts-interface">Response</span> {
+  一级知识点内容: <span class="ts-type">string</span>;
+  标签: <span class="ts-type">string</span>;
+  认知维度: <span class="ts-type">认知维度</span>;
+  分类: <span class="ts-type">分类</span>;
+  教学目标: <span class="ts-type">string</span>;
+  知识点说明: <span class="ts-type">string</span>;
+  二级知识点: <span class="ts-interface">知识点</span>[];
+  前置知识点: <span class="ts-type">string</span>;
+}
+
+<span class="ts-keyword">export</span> <span class="ts-keyword">interface</span> <span class="ts-interface">知识点</span> {
+  二级知识点内容?: <span class="ts-type">string</span>;
+  前置知识点?: <span class="ts-type">string</span>;
+  后置知识点?: <span class="ts-type">string</span>;
+  标签?: <span class="ts-type">string</span>;
+  认知维度: <span class="ts-type">认知维度</span>;
+  分类: <span class="ts-type">分类</span>;
+  教学目标?: <span class="ts-type">string</span>;
+  知识点说明?: <span class="ts-type">string</span>;
+  三级知识点?: <span class="ts-interface">知识点</span>[];
+  三级知识点内容?: <span class="ts-type">string</span>;
+  关联知识点?: <span class="ts-type">string</span>;
+}
+
+<span class="ts-keyword">export</span> <span class="ts-keyword">enum</span> <span class="ts-enum">分类</span> {
+  事实性 = <span class="ts-string">"事实性"</span>,
+  元认知 = <span class="ts-string">"元认知"</span>,
+  概念性 = <span class="ts-string">"概念性"</span>,
+  程序性 = <span class="ts-string">"程序性"</span>,
+}
+
+<span class="ts-keyword">export</span> <span class="ts-keyword">enum</span> <span class="ts-enum">认知维度</span> {
+  分析 = <span class="ts-string">"分析"</span>,
+  创造 = <span class="ts-string">"创造"</span>,
+  应用 = <span class="ts-string">"应用"</span>,
+  理解 = <span class="ts-string">"理解"</span>,
+  记忆 = <span class="ts-string">"记忆"</span>,
+  评价 = <span class="ts-string">"评价"</span>,
+}
+</div>`;
+
+        el.innerHTML = typeCode;
+    }
+</script>
+</body>
+</html>
